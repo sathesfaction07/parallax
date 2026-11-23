@@ -472,3 +472,25 @@ jobs:
           discrepancy-bot explain e08-left-only | grep -q 'no row at all'
           discrepancy-bot explain e16-cache-ahead --cache system-b | grep -q 'not suppressed'
           echo "all commands explain themselves"
+
+  test-windows:
+    # The Linux job runs the full suite plus this project's own checks. This job runs the
+    # test suite on Windows, where the default encoding is cp1252 and paths use backslashes:
+    # several projects in this portfolio shipped bugs that only failed there.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Test
+        run: pytest -q
