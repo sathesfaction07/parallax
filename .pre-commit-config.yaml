@@ -1,0 +1,73 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+        args: [--check]
+
+  - repo: local
+    hooks:
+      - id: corpus-still-produces-every-outcome
+        name: the corpus still plants every outcome the tests assert about
+        entry: python
+        language: system
+        pass_filenames: false
+        args:
+          - -c
+          - |
+            import sys
+            sys.path[:0] = ["src", "data"]
+            from pathlib import Path
+
+            from discrepancy_bot.analyse import analyse
+            from discrepancy_bot.classify import SourceRelation
+            from discrepancy_bot.config import Settings
+            from discrepancy_bot.models import Cause, Order, Pairing
+            from discrepancy_bot.pairing import compare_idioms, pair_up
+            from discrepancy_bot.severity import collisions
+            from generate import MANIFEST, PLANTED
+
+            data = Path("data")
+            on_disk = {p.name for p in data.glob("*.csv")}
+            assert on_disk == set(MANIFEST), f"corpus drift: {on_disk ^ set(MANIFEST)}"
+
+            base = Settings(data_dir=data)
+            result = analyse(base)
+            entities = {p.entity for p in pair_up(result.left.decisions, result.right.decisions)}
+            assert entities == set(PLANTED), f"manifest drift: {entities ^ set(PLANTED)}"
+
+            # Every pairing and every order must still occur, or assertions go vacuous.
+            pairs = pair_up(result.left.decisions, result.right.decisions)
+            from discrepancy_bot.ordering import order_counts
+            from discrepancy_bot.pairing import cardinality_counts
+            assert all(cardinality_counts(pairs)[p] for p in Pairing)
+            assert all(order_counts(pairs)[o] for o in Order)
+
+            # Every cause must be reachable under some configuration.
+            seen = set()
+            for relation in SourceRelation:
+                for cache in ("", "system-b"):
+                    counts = analyse(
+                        base.model_copy(update={"relation": relation, "cached_sources": cache})
+                    ).by_cause
+                    seen |= {c for c, n in counts.items() if n}
+            assert seen == set(Cause), f"unreachable causes: {set(Cause) - seen}"
+
+            # The findings the README quotes must still be true.
+            idioms = compare_idioms(result.left.decisions, result.right.decisions)
+            assert not idioms.idioms_agree
+            assert result.ties.manufactured > 0
+            assert result.left.mixed_timezone_discipline
+            assert result.left.duplicate_entities or result.right.duplicate_entities
+            mirror = analyse(base.model_copy(update={"relation": SourceRelation.MIRROR}))
+            assert mirror.conflicts > 0
+            assert collisions(mirror.verdicts), "the score collision must still exist"
+            print(f"corpus ok: {len(entities)} entities, all outcomes reachable")
+
+      - id: tests
+        name: tests
+        entry: python -m pytest -q
+        language: system
+        pass_filenames: false

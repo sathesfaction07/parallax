@@ -1,0 +1,474 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    env:
+      # Rich wraps to the terminal width and a CI runner reports 80. The greps below assert on
+      # whole sentences, so give it room rather than matching fragments.
+      COLUMNS: "200"
+      DB_DATA_DIR: data
+      # pytest puts the rootdir on sys.path; a bare `python - <<PY` does not, and several
+      # steps below import the shared fixtures from tests/conftest.py.
+      PYTHONPATH: .
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests data
+
+      - name: The corpus is reproducible, and the generator owns its directory
+        run: |
+          # A stale fixture written to an older convention parses cleanly and quietly changes
+          # every count. The generator prunes anything it did not write.
+          printf 'entity,value\nleftover,APPROVED\n' > data/stale_leftover.csv
+          python data/generate.py
+          test ! -f data/stale_leftover.csv
+          test "$(ls data/*.csv | wc -l)" -eq 2
+
+      - name: Test
+        run: pytest -q --cov=discrepancy_bot --cov-report=term-missing
+
+      - name: Four causes share one appearance, and the fifth outcome is honest
+        run: |
+          python - <<'PY'
+          from datetime import timedelta
+
+          from discrepancy_bot.classify import SourceRelation, classify, why_rules_are_too_late
+          from discrepancy_bot.models import CAUSE_NOTES, Cause, Order, Presence
+          from tests.conftest import at, pair
+
+          hour = timedelta(hours=1)
+
+          # THE SPINE: one pair of values, and the cause depends on evidence outside it.
+          ordered = pair(left_at=at(9), right_at=at(15))
+          racing = pair(left_at=at(9), right_at=at(9, 4))
+          assert ordered.left.value == racing.left.value
+          assert ordered.right.value == racing.right.value
+          assert classify(ordered, hour, SourceRelation.MIRROR).cause is Cause.CONFLICT
+          assert classify(racing, hour, SourceRelation.MIRROR).cause is Cause.RACE
+          print("  same two values, different cause, decided by the gap")
+
+          # UNSEPARABLE is neither an error nor a clean bill of health, and it is REPORTABLE.
+          _, note = CAUSE_NOTES[Cause.UNSEPARABLE]
+          assert "NOT an error" in note and "not a clean bill of health" in note
+          undeclared = classify(ordered, hour, SourceRelation.UNDECLARED)
+          assert undeclared.cause is Cause.UNSEPARABLE and undeclared.reportable
+
+          # Silence is not dissent, even though Python says the values differ.
+          assert (None != "APPROVED") is True
+          silent = classify(pair("APPROVED", ""), hour, SourceRelation.MIRROR)
+          assert silent.presence is Presence.RECORDED_EMPTY
+          assert "silence is not dissent" in silent.detail
+          assert "category error" in silent.detail
+
+          # Order comes before cause: with no sequence, nothing can be named.
+          for p, expected in ((pair(left_at=at(9), right_at=at(9)), Order.TIED),
+                              (pair(left_at=at(12, tz=True), right_at=at(7)), Order.INCOMPARABLE),
+                              (pair(left_at=None, right_at=at(9)), Order.UNTIMED)):
+              verdict = classify(p, hour, SourceRelation.MIRROR)
+              assert verdict.order is expected
+              assert verdict.cause is Cause.UNSEPARABLE
+
+          assert "downstream of the question" in why_rules_are_too_late()
+          print("  UNSEPARABLE is reported, not dropped")
+          PY
+
+      - name: The relation decides the conflict count, and it is not in the data
+        run: |
+          python - <<'PY'
+          from datetime import timedelta
+
+          from discrepancy_bot.analyse import analyse
+          from discrepancy_bot.classify import RELATION_NOTES, SourceRelation, classify
+          from discrepancy_bot.config import Settings
+          from discrepancy_bot.models import Cause
+          from tests.conftest import at, pair
+
+          # THE FINDING: identical evidence, three declarations, three causes.
+          ordered = pair(left_at=at(9), right_at=at(15))
+          causes = {r: classify(ordered, timedelta(hours=1), r).cause for r in SourceRelation}
+          assert causes[SourceRelation.MIRROR] is Cause.CONFLICT
+          assert causes[SourceRelation.INDEPENDENT] is Cause.TRANSITION
+          assert causes[SourceRelation.UNDECLARED] is Cause.UNSEPARABLE
+          assert len(set(causes.values())) == 3
+
+          # And on the whole corpus, the number anyone acts on moves 3 -> 0 -> 0.
+          counts = {}
+          for relation in SourceRelation:
+              result = analyse(Settings(data_dir="data", relation=relation))
+              counts[relation] = (result.conflicts, result.unseparable)
+          assert counts[SourceRelation.MIRROR] == (3, 9)
+          assert counts[SourceRelation.INDEPENDENT] == (0, 9)
+          assert counts[SourceRelation.UNDECLARED] == (0, 12)
+
+          # The default refuses to guess, and says why.
+          assert Settings().relation is SourceRelation.UNDECLARED
+          note = RELATION_NOTES[SourceRelation.UNDECLARED]
+          assert "SAME evidence supports either" in note
+          assert "Defaulting would be inventing the answer" in note
+          print(f"  conflicts by declaration: {[c for c, _ in counts.values()]}")
+          PY
+
+      - name: Two ordinary join idioms fail in opposite directions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          from discrepancy_bot.ingest import read_csv
+          from discrepancy_bot.models import Pairing
+          from discrepancy_bot.pairing import (
+              cardinality_counts, compare_idioms, comparison_is_defined, index_by_entity,
+              nested_loop_join, pair_up,
+          )
+
+          left = read_csv(Path("data/system_a.csv"), "system-a").decisions
+          right = read_csv(Path("data/system_b.csv"), "system-b").decisions
+
+          result = compare_idioms(left, right)
+          assert result.idioms_agree is False
+          assert result.dict_pairs == 14, result.dict_pairs
+          assert result.nested_pairs == 16, result.nested_pairs
+          assert "undercounts" in result.summary() and "overcounts" in result.summary()
+
+          # One idiom LOSES a decision outright.
+          indexed = index_by_entity(right)
+          assert len(indexed) < len(right)
+          teams = [r.team for r in right if r.entity == "e10-two-teams"]
+          assert len(teams) == 2 and indexed["e10-two-teams"].team == teams[-1]
+
+          # The other produces more rows than there are entities.
+          joined = nested_loop_join(left, right)
+          assert len(joined) > len({a.entity for a, _ in joined})
+
+          # This tool does neither: one row per entity, cardinality RECORDED.
+          pairs = pair_up(left, right)
+          assert len(pairs) == 16
+          counts = cardinality_counts(pairs)
+          assert all(counts[p] > 0 for p in Pairing), counts
+          assert [p.entity for p in pairs] == [p.entity for p in pair_up(
+              list(reversed(left)), list(reversed(right))
+          )], "output must not depend on input order"
+
+          undefined = [p for p in pairs if not comparison_is_defined(p)[0]]
+          assert len(undefined) == counts[Pairing.ONE_SIDED] + counts[Pairing.MULTIPLIED]
+          print(f"  dict join {result.dict_pairs}, nested join {result.nested_pairs}, entities 16")
+          PY
+
+      - name: Timestamps, ties, and who gets handed the verdict
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+
+          from discrepancy_bot.analyse import analyse
+          from discrepancy_bot.config import Settings
+          from discrepancy_bot.models import Decision, Order
+          from discrepancy_bot.ordering import (
+              comparable, force_comparable, order_counts, same_instant, same_text,
+              stable_sort_demo, tie_risk,
+          )
+          from discrepancy_bot.pairing import pair_up
+          from tests.conftest import at, pair
+
+          # Python REFUSES to compare aware against naive.
+          try:
+              at(12, tz=True) < at(7)
+              raise AssertionError("that should not have compared")
+          except TypeError as exc:
+              assert "offset-naive and offset-aware" in str(exc)
+          assert not comparable(at(12, tz=True), at(7))
+
+          # Forcing it moves the instant. 07:00-05:00 IS 12:00Z, and stripped it sorts earlier.
+          est = datetime(2025, 3, 1, 7, tzinfo=timezone(timedelta(hours=-5)))
+          assert est == datetime(2025, 3, 1, 12, tzinfo=timezone.utc)
+          a, b, offset = force_comparable(est, at(9))
+          assert offset == timedelta(hours=-5) and a < b
+
+          # One instant, two strings.
+          assert same_instant(est, datetime(2025, 3, 1, 12, tzinfo=timezone.utc)) is True
+          assert same_text(est, datetime(2025, 3, 1, 12, tzinfo=timezone.utc)) is False
+
+          # Precision loss MANUFACTURES ties the data did not have.
+          pairs = pair_up(*[x.decisions for x in (
+              analyse(Settings(data_dir="data")).left, analyse(Settings(data_dir="data")).right
+          )])
+          risk = tie_risk(pairs, "day")
+          assert risk.tied_at_full == 2 and risk.tied_after == 10
+          assert risk.manufactured == 8
+          assert "the format threw it away" in risk.summary()
+
+          # A tie is not an order, and a STABLE sort hands the verdict to the loader.
+          rows = [Decision(entity="e", source="A", value="APPROVED", decided_at=at(9)),
+                  Decision(entity="e", source="B", value="REJECTED", decided_at=at(9))]
+          demo = stable_sort_demo(rows)
+          assert demo.verdict_flips
+          assert demo.as_loaded == "B=REJECTED" and demo.reversed_load == "A=APPROVED"
+          assert "order the rows happened to arrive in" in demo.summary()
+
+          counts = order_counts(pairs)
+          assert all(counts[o] > 0 for o in Order), counts
+          print(f"  {risk.manufactured} orderable pairs would become ties at day precision")
+          PY
+
+      - name: Reversal claims influence; a timestamp only gives sequence
+        run: |
+          python - <<'PY'
+          from datetime import timedelta
+
+          from discrepancy_bot.influence import (
+              assess, sensitivity, verdict_depends_on_the_guess, window_is_a_guess,
+          )
+          from discrepancy_bot.models import Influence, Order
+          from discrepancy_bot.ordering import classify_order
+          from tests.conftest import at, pair
+
+          hour = timedelta(hours=1)
+          racing = pair(left_at=at(9), right_at=at(9, 4))
+          ordered = pair(left_at=at(9), right_at=at(15))
+
+          # BOTH are ordered. Only one is anybody overturning anything.
+          assert classify_order(racing)[0] is Order.ORDERED
+          assert classify_order(ordered)[0] is Order.ORDERED
+          race_call = assess(racing, hour)
+          assert race_call.influence is Influence.COULD_NOT_HAVE_SEEN
+          assert race_call.is_a_reversal is False
+          assert "nobody overturned anybody" in race_call.detail
+          assert "ordering is not enough" in race_call.detail
+
+          # And the ceiling is honest: possible, not established.
+          far = assess(ordered, hour)
+          assert far.is_a_reversal is True
+          assert "possible, not established" in far.detail
+          assert "Being able to see something is not seeing it" in far.detail
+
+          # Even the six-hour "obvious reversal" is a verdict about the window.
+          windows = [timedelta(minutes=m) for m in (1, 5, 60, 240, 1440)]
+          assert verdict_depends_on_the_guess(ordered, windows)
+          answers = dict(sensitivity(ordered, windows))
+          assert answers[timedelta(minutes=1)] is Influence.COULD_HAVE_SEEN
+          assert answers[timedelta(minutes=1440)] is Influence.COULD_NOT_HAVE_SEEN
+
+          # Without a sequence there is no 'later' to ask about.
+          assert assess(pair(left_at=at(9), right_at=at(9)), hour).influence is Influence.UNKNOWABLE
+          assert "CONFIGURED, not measured" in window_is_a_guess(hour)
+          print("  a 6h gap becomes a RACE at a 24h window")
+          PY
+
+      - name: A cache must be BEHIND to explain anything
+        run: |
+          python - <<'PY'
+          from datetime import timedelta
+
+          from discrepancy_bot.analyse import analyse
+          from discrepancy_bot.classify import SourceRelation, classify
+          from discrepancy_bot.config import Settings
+          from discrepancy_bot.models import Cause
+          from tests.conftest import at, pair
+
+          hour = timedelta(hours=1)
+          cache = frozenset({"right"})
+
+          # Lag: the declared cache holds the OLDER decision.
+          behind = classify(pair(left_at=at(9), right_at=at(8)), hour,
+                            SourceRelation.MIRROR, cache)
+          assert behind.cause is Cause.STALE
+          assert "holds the OLDER decision" in behind.detail
+          assert "rests entirely on the DECLARATION" in behind.detail
+
+          # NOT lag: a copy cannot get ahead of the thing it copies, so this is NOT suppressed.
+          ahead = classify(pair(left_at=at(9), right_at=at(15)), hour,
+                           SourceRelation.MIRROR, cache)
+          assert ahead.cause is Cause.UNSEPARABLE
+          assert "cannot get ahead of the thing it copies" in ahead.detail
+          assert "not suppressed" in ahead.detail
+
+          # THE DEFECT THIS GUARDS: the cache check once ran BEFORE ordering and swallowed
+          # everything, including the race. It must not.
+          tied = classify(pair(left_at=at(9), right_at=at(9)), hour, SourceRelation.MIRROR, cache)
+          assert tied.cause is Cause.UNSEPARABLE, "a tie cannot be diagnosed as lag"
+
+          declared = analyse(Settings(data_dir="data", relation=SourceRelation.MIRROR,
+                                      cached_sources="system-b"))
+          assert declared.by_cause[Cause.STALE] == 1, declared.by_cause
+          print(f"  declaring a cache explains exactly {declared.by_cause[Cause.STALE]} difference")
+          PY
+
+      - name: A rule can only subtract, and severity is the wrong order
+        run: |
+          python - <<'PY'
+          from datetime import timedelta
+
+          from discrepancy_bot.analyse import analyse
+          from discrepancy_bot.classify import SourceRelation
+          from discrepancy_bot.config import Settings
+          from discrepancy_bot.models import Cause, Severity
+          from discrepancy_bot.rules import (
+              DEFAULT_RULES, apply_rules, rules_can_only_subtract, suppression_is_a_wager,
+              unseparable_is_never_suppressed,
+          )
+          from discrepancy_bot.severity import (
+              collisions, rank, severity_and_confidence_disagree, weights_are_invented,
+          )
+
+          result = analyse(Settings(data_dir="data", relation=SourceRelation.INDEPENDENT))
+          outcome = apply_rules(result.verdicts, DEFAULT_RULES)
+
+          # A rule cannot ADD a discrepancy.
+          assert rules_can_only_subtract(result.verdicts)
+          assert outcome.after < outcome.before
+          assert outcome.removed == 5, outcome.removed
+          assert "indistinguishable from a" in outcome.summary()
+          assert "listed rather than deducted" in outcome.summary()
+          assert "stops learning about the thing it filters" in suppression_is_a_wager(outcome)
+
+          # The tool's most honest output is never suppressible.
+          assert unseparable_is_never_suppressed()
+          assert {v.cause for v in outcome.kept} == {Cause.UNSEPARABLE}
+          for rule in DEFAULT_RULES:
+              assert rule.what_it_hides.strip()
+
+          # Severity: invented, non-ordinal, and ranking the WRONG thing.
+          assert "the units are nothing" in weights_are_invented()
+          mirror = analyse(Settings(data_dir="data", relation=SourceRelation.MIRROR))
+          found = collisions(mirror.verdicts)
+          assert [c.points for c in found] == [50], found
+          assert set(found[0].causes) == {Cause.CONFLICT, Cause.UNSEPARABLE}
+          assert "not ordinal" in found[0].summary()
+
+          count, note = severity_and_confidence_disagree(mirror.verdicts)
+          assert count == 9, count
+          assert "two orders and the report shows one" in note
+
+          # The very top of the ranked list is UNEXPLAINED, not the real conflicts.
+          top = rank(mirror.verdicts)[:2]
+          assert all(v.cause is Cause.UNSEPARABLE for v in top)
+          assert all(v.severity is Severity.HIGH for v in top)
+          print(f"  {outcome.removed} suppressed; top 2 by severity are both UNSEPARABLE")
+          PY
+
+      - name: The CSV round trip destroys the distinction it needs
+        run: |
+          python - <<'PY'
+          from discrepancy_bot.analyse import analyse, payload
+          from discrepancy_bot.config import Settings
+          from discrepancy_bot.ingest import read_csv, round_trip_loss
+          from pathlib import Path
+
+          first, second, distinguishable = round_trip_loss()
+          assert first == second == ""
+          assert distinguishable is False, "None and '' must be indistinguishable after csv"
+          assert ("" != "APPROVED") is True, "...and both get flagged as differing"
+
+          # The reader reports what the file could not say, per row.
+          left = read_csv(Path("data/system_a.csv"), "system-a")
+          assert left.blank_values == [] and left.missing_decided_at
+          assert left.mixed_timezone_discipline is True
+          assert left.unparseable_times
+
+          report = payload(analyse(Settings(data_dir="data")))
+          assert report["blank_values"] == ["e07-blank-right"]
+          assert report["duplicate_entities"] == ["e10-two-teams", "e15-agree-multiplied"]
+          assert sorted(report["mixed_tz_in_one_file"]) == ["system-a", "system-b"]
+          print("  the loss is demonstrated, not asserted")
+          PY
+
+      - name: The report publishes what it cannot explain
+        run: |
+          discrepancy-bot report --relation MIRROR -o /tmp/out
+          python - <<'PY'
+          import json
+
+          p = json.load(open("/tmp/out/report.json"))
+          assert p["entities"] == 16
+          assert p["matched"] == 2
+          assert p["differences"] == 14
+          assert p["matched"] + p["differences"] == p["entities"]
+          assert p["conflicts"] == 3
+          assert p["unseparable"] == 9
+          assert p["relation"] == "MIRROR"
+          assert p["pairing"] == {"ONE_TO_ONE": 12, "ONE_SIDED": 2, "MULTIPLIED": 2}
+          assert p["undefined_comparisons"] == 4
+          assert p["idioms_agree"] is False
+          assert p["dict_pairs"] == 14 and p["nested_pairs"] == 16
+          assert p["ties_at_full_precision"] == 2
+          assert p["ties_after_truncation"] == 10
+          assert p["score_collisions"] == [50]
+          assert p["high_severity_unexplained"] == 9
+          print(f"  {p['differences']} differences, {p['unseparable']} of them unexplained")
+          PY
+
+      - name: check gates on what a producer can fix, not on the world
+        run: |
+          ! discrepancy-bot check
+          discrepancy-bot check | grep -q 'Fixable in the source files'
+          discrepancy-bot check | grep -q 'appear more than once'
+          discrepancy-bot check | grep -q 'naive timestamps in ONE file'
+          discrepancy-bot check | grep -q 'no decision time'
+          discrepancy-bot check | grep -q 'could not be parsed'
+          discrepancy-bot check | grep -q 'no decision value'
+          discrepancy-bot check | grep -q 'Reported and NOT failed on'
+          discrepancy-bot check | grep -q 'FAIL on'
+
+          # Clean files with an UNEXPLAINED difference must PASS -- the difference is not a
+          # defect in the export, and gating on it would fail every honest run.
+          mkdir -p /tmp/clean
+          printf 'entity,value,decided_at\ne1,APPROVED,2025-03-01T09:00:00\n' > /tmp/clean/a.csv
+          printf 'entity,value,decided_at\ne1,REJECTED,2025-03-01T09:00:00\n' > /tmp/clean/b.csv
+          export DB_LEFT_FILE=a.csv DB_RIGHT_FILE=b.csv
+          DB_DATA_DIR=/tmp/clean discrepancy-bot check
+          DB_DATA_DIR=/tmp/clean discrepancy-bot check | grep -q 'Nothing fixable at source'
+          DB_DATA_DIR=/tmp/clean discrepancy-bot check | grep -q 'UNSEPARABLE'
+
+          # ...but one duplicate key is enough to fail, because that IS fixable.
+          mkdir -p /tmp/dupe
+          printf 'entity,value,decided_at\ne1,APPROVED,2025-03-01T09:00:00\ne1,REJECTED,2025-03-01T10:00:00\n' > /tmp/dupe/a.csv
+          cp /tmp/clean/b.csv /tmp/dupe/b.csv
+          ! DB_DATA_DIR=/tmp/dupe discrepancy-bot check
+          DB_DATA_DIR=/tmp/dupe discrepancy-bot check | grep -q 'appear more than once'
+          echo "an unexplained difference does not gate; a duplicate key does"
+
+      - name: Every command publishes its reasoning
+        run: |
+          discrepancy-bot causes | grep -q 'FOUR causes, ONE observable pair'
+          discrepancy-bot causes | grep -q 'not in the pair'
+          discrepancy-bot causes | grep -q 'downstream of the question'
+          discrepancy-bot causes | grep -q 'appears nowhere in the rows'
+          discrepancy-bot pair | grep -q 'keeps the LAST row per entity'
+          discrepancy-bot pair | grep -q 'undercounts'
+          discrepancy-bot order | grep -q 'the format threw it away'
+          discrepancy-bot order | grep -q 'opposite conclusions'
+          discrepancy-bot influence | grep -q 'nobody overturned anybody'
+          discrepancy-bot influence e03-race | grep -q 'COULD_NOT_HAVE_SEEN'
+          discrepancy-bot influence e04-tied | grep -q 'holds across every window'
+          discrepancy-bot rules --relation INDEPENDENT | grep -q 'can only subtract'
+          discrepancy-bot rules --relation INDEPENDENT | grep -q 'cannot be settled'
+          discrepancy-bot severity --relation MIRROR | grep -q 'not ordinal'
+          discrepancy-bot severity --relation MIRROR | grep -q 'ranked by an invented number'
+          discrepancy-bot compare-relations | grep -q 'The rows never changed.'
+          discrepancy-bot doctor | grep -q 'invented, not measured'
+          discrepancy-bot doctor | grep -q 'CONFIGURED, never measured'
+          discrepancy-bot doctor | grep -q 'Four things this tool cannot do'
+          discrepancy-bot doctor | grep -q 'Demonstrated, not asserted'
+          discrepancy-bot report | grep -q 'rests on the source relation'
+          discrepancy-bot explain e01-agree | grep -q 'not a clean bill of health'
+          discrepancy-bot explain e10-two-teams | grep -q 'we chose it'
+          discrepancy-bot explain e08-left-only | grep -q 'no row at all'
+          discrepancy-bot explain e16-cache-ahead --cache system-b | grep -q 'not suppressed'
+          echo "all commands explain themselves"
