@@ -1,8 +1,8 @@
-# DiscrepancyBot
+# Parallax
 
 Two systems record decisions about the same items, and sometimes they disagree. Some of those
 disagreements are real conflicts. Others are a reversal that has not propagated yet, two teams
-acting at once, or one side that never recorded anything. DiscrepancyBot compares the two,
+acting at once, or one side that never recorded anything. Parallax compares the two,
 explains every difference it can (pairing, presence, order and timing), and reports the ones it
 cannot explain separately instead of calling them conflicts.
 

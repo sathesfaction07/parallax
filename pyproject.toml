@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "discrepancy-bot"
+name = "parallax"
 version = "1.0.0"
 description = "Compares decisions recorded in two systems, and reports which differences it cannot explain"
 requires-python = ">=3.11"
@@ -22,7 +22,7 @@ dev = [
 ]
 
 [project.scripts]
-discrepancy-bot = "discrepancy_bot.cli:app"
+parallax = "discrepancy_bot.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -391,7 +391,7 @@ jobs:
 
       - name: The report publishes what it cannot explain
         run: |
-          discrepancy-bot report --relation MIRROR -o /tmp/out
+          parallax report --relation MIRROR -o /tmp/out
           python - <<'PY'
           import json
 
@@ -416,15 +416,15 @@ jobs:
 
       - name: check gates on what a producer can fix, not on the world
         run: |
-          ! discrepancy-bot check
-          discrepancy-bot check | grep -q 'Fixable in the source files'
-          discrepancy-bot check | grep -q 'appear more than once'
-          discrepancy-bot check | grep -q 'naive timestamps in ONE file'
-          discrepancy-bot check | grep -q 'no decision time'
-          discrepancy-bot check | grep -q 'could not be parsed'
-          discrepancy-bot check | grep -q 'no decision value'
-          discrepancy-bot check | grep -q 'Reported and NOT failed on'
-          discrepancy-bot check | grep -q 'FAIL on'
+          ! parallax check
+          parallax check | grep -q 'Fixable in the source files'
+          parallax check | grep -q 'appear more than once'
+          parallax check | grep -q 'naive timestamps in ONE file'
+          parallax check | grep -q 'no decision time'
+          parallax check | grep -q 'could not be parsed'
+          parallax check | grep -q 'no decision value'
+          parallax check | grep -q 'Reported and NOT failed on'
+          parallax check | grep -q 'FAIL on'
 
           # Clean files with an UNEXPLAINED difference must PASS -- the difference is not a
           # defect in the export, and gating on it would fail every honest run.
@@ -432,45 +432,45 @@ jobs:
           printf 'entity,value,decided_at\ne1,APPROVED,2025-03-01T09:00:00\n' > /tmp/clean/a.csv
           printf 'entity,value,decided_at\ne1,REJECTED,2025-03-01T09:00:00\n' > /tmp/clean/b.csv
           export DB_LEFT_FILE=a.csv DB_RIGHT_FILE=b.csv
-          DB_DATA_DIR=/tmp/clean discrepancy-bot check
-          DB_DATA_DIR=/tmp/clean discrepancy-bot check | grep -q 'Nothing fixable at source'
-          DB_DATA_DIR=/tmp/clean discrepancy-bot check | grep -q 'UNSEPARABLE'
+          DB_DATA_DIR=/tmp/clean parallax check
+          DB_DATA_DIR=/tmp/clean parallax check | grep -q 'Nothing fixable at source'
+          DB_DATA_DIR=/tmp/clean parallax check | grep -q 'UNSEPARABLE'
 
           # ...but one duplicate key is enough to fail, because that IS fixable.
           mkdir -p /tmp/dupe
           printf 'entity,value,decided_at\ne1,APPROVED,2025-03-01T09:00:00\ne1,REJECTED,2025-03-01T10:00:00\n' > /tmp/dupe/a.csv
           cp /tmp/clean/b.csv /tmp/dupe/b.csv
-          ! DB_DATA_DIR=/tmp/dupe discrepancy-bot check
-          DB_DATA_DIR=/tmp/dupe discrepancy-bot check | grep -q 'appear more than once'
+          ! DB_DATA_DIR=/tmp/dupe parallax check
+          DB_DATA_DIR=/tmp/dupe parallax check | grep -q 'appear more than once'
           echo "an unexplained difference does not gate; a duplicate key does"
 
       - name: Every command publishes its reasoning
         run: |
-          discrepancy-bot causes | grep -q 'FOUR causes, ONE observable pair'
-          discrepancy-bot causes | grep -q 'not in the pair'
-          discrepancy-bot causes | grep -q 'downstream of the question'
-          discrepancy-bot causes | grep -q 'appears nowhere in the rows'
-          discrepancy-bot pair | grep -q 'keeps the LAST row per entity'
-          discrepancy-bot pair | grep -q 'undercounts'
-          discrepancy-bot order | grep -q 'the format threw it away'
-          discrepancy-bot order | grep -q 'opposite conclusions'
-          discrepancy-bot influence | grep -q 'nobody overturned anybody'
-          discrepancy-bot influence e03-race | grep -q 'COULD_NOT_HAVE_SEEN'
-          discrepancy-bot influence e04-tied | grep -q 'holds across every window'
-          discrepancy-bot rules --relation INDEPENDENT | grep -q 'can only subtract'
-          discrepancy-bot rules --relation INDEPENDENT | grep -q 'cannot be settled'
-          discrepancy-bot severity --relation MIRROR | grep -q 'not ordinal'
-          discrepancy-bot severity --relation MIRROR | grep -q 'ranked by an invented number'
-          discrepancy-bot compare-relations | grep -q 'The rows never changed.'
-          discrepancy-bot doctor | grep -q 'invented, not measured'
-          discrepancy-bot doctor | grep -q 'CONFIGURED, never measured'
-          discrepancy-bot doctor | grep -q 'Four things this tool cannot do'
-          discrepancy-bot doctor | grep -q 'Demonstrated, not asserted'
-          discrepancy-bot report | grep -q 'rests on the source relation'
-          discrepancy-bot explain e01-agree | grep -q 'not a clean bill of health'
-          discrepancy-bot explain e10-two-teams | grep -q 'we chose it'
-          discrepancy-bot explain e08-left-only | grep -q 'no row at all'
-          discrepancy-bot explain e16-cache-ahead --cache system-b | grep -q 'not suppressed'
+          parallax causes | grep -q 'FOUR causes, ONE observable pair'
+          parallax causes | grep -q 'not in the pair'
+          parallax causes | grep -q 'downstream of the question'
+          parallax causes | grep -q 'appears nowhere in the rows'
+          parallax pair | grep -q 'keeps the LAST row per entity'
+          parallax pair | grep -q 'undercounts'
+          parallax order | grep -q 'the format threw it away'
+          parallax order | grep -q 'opposite conclusions'
+          parallax influence | grep -q 'nobody overturned anybody'
+          parallax influence e03-race | grep -q 'COULD_NOT_HAVE_SEEN'
+          parallax influence e04-tied | grep -q 'holds across every window'
+          parallax rules --relation INDEPENDENT | grep -q 'can only subtract'
+          parallax rules --relation INDEPENDENT | grep -q 'cannot be settled'
+          parallax severity --relation MIRROR | grep -q 'not ordinal'
+          parallax severity --relation MIRROR | grep -q 'ranked by an invented number'
+          parallax compare-relations | grep -q 'The rows never changed.'
+          parallax doctor | grep -q 'invented, not measured'
+          parallax doctor | grep -q 'CONFIGURED, never measured'
+          parallax doctor | grep -q 'Four things this tool cannot do'
+          parallax doctor | grep -q 'Demonstrated, not asserted'
+          parallax report | grep -q 'rests on the source relation'
+          parallax explain e01-agree | grep -q 'not a clean bill of health'
+          parallax explain e10-two-teams | grep -q 'we chose it'
+          parallax explain e08-left-only | grep -q 'no row at all'
+          parallax explain e16-cache-ahead --cache system-b | grep -q 'not suppressed'
           echo "all commands explain themselves"
 
   test-windows:

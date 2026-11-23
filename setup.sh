@@ -19,9 +19,9 @@ if [ ! -d .venv ]; then
     note "created .venv"
 fi
 .venv/bin/pip install -q -e ".[dev]"
-note "installed discrepancy-bot and its dev extras"
+note "installed parallax and its dev extras"
 PY=.venv/bin/python
-CLI=.venv/bin/discrepancy-bot
+CLI=.venv/bin/parallax
 
 banner "2. Corpus"
 $PY data/generate.py
@@ -132,10 +132,10 @@ fi
 banner "Done"
 cat <<'EOF'
   Try these:
-    discrepancy-bot causes                                  the four causes and what each needs
-    discrepancy-bot compare-relations                       one dataset, three declarations
-    discrepancy-bot explain e02-ordered-far --relation MIRROR
-    discrepancy-bot explain e16-cache-ahead --cache system-b
-    discrepancy-bot influence e03-race                      sequence vs influence
-    discrepancy-bot report --relation MIRROR -o /tmp/out
+    parallax causes                                  the four causes and what each needs
+    parallax compare-relations                       one dataset, three declarations
+    parallax explain e02-ordered-far --relation MIRROR
+    parallax explain e16-cache-ahead --cache system-b
+    parallax influence e03-race                      sequence vs influence
+    parallax report --relation MIRROR -o /tmp/out
 EOF
