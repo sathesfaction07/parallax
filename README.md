@@ -1,6 +1,10 @@
 # DiscrepancyBot
 
-Compares decisions recorded in two systems, and reports which differences it cannot explain.
+Two systems record decisions about the same items, and sometimes they disagree. Some of those
+disagreements are real conflicts. Others are a reversal that has not propagated yet, two teams
+acting at once, or one side that never recorded anything. DiscrepancyBot compares the two,
+explains every difference it can (pairing, presence, order and timing), and reports the ones it
+cannot explain separately instead of calling them conflicts.
 
 ```bash
 ./setup.sh
@@ -8,7 +12,9 @@ Compares decisions recorded in two systems, and reports which differences it can
 
 ---
 
-## The brief, and the question it actually asks
+## Conflict or Expected Transition Is a Question About Order
+
+The requirements note this project started from described the problem like this:
 
 > **Worst input:** legitimate decision reversals (policy changed), multiple teams working on the
 > same entity, timing delays making it look like a conflict when it's just latency.

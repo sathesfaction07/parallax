@@ -23,6 +23,22 @@ def flat(text: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def wide_console():
+    """Render tables wide enough that no cell wraps. These tests check WHAT the tool says;
+    where a narrow terminal breaks a cell is layout, and it differs by platform (rich gives
+    legacy Windows consoles one column less), which made a phrase test fail only there."""
+    from discrepancy_bot import cli, render
+
+    consoles = [cli.console, render.console]
+    saved = [c.width for c in consoles]
+    for c in consoles:
+        c.width = 200
+    yield
+    for c, width in zip(consoles, saved, strict=True):
+        c.width = width
+
+
 def run(*args: str, env: dict | None = None):
     base = {"DB_DATA_DIR": str(CORPUS)}
     base.update(env or {})

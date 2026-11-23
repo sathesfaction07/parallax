@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -561,8 +562,8 @@ class TestSettings:
 
     def test_paths_are_built_from_the_data_dir(self):
         settings = Settings(data_dir="/tmp/x", left_file="l.csv", right_file="r.csv")
-        assert str(settings.left_path) == "/tmp/x/l.csv"
-        assert str(settings.right_path) == "/tmp/x/r.csv"
+        assert settings.left_path == Path("/tmp/x") / "l.csv"
+        assert settings.right_path == Path("/tmp/x") / "r.csv"
 
     def test_every_setting_that_matters_has_a_provenance_entry(self):
         names = {name for name, _, _ in provenance()}
