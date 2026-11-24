@@ -183,7 +183,7 @@ def report(
     render.show_report(result)
     if out:
         out.mkdir(parents=True, exist_ok=True)
-        (out / "report.json").write_text(json.dumps(payload(result), indent=2, sort_keys=True))
+        (out / "report.json").write_text(json.dumps(payload(result), indent=2, sort_keys=True), encoding="utf-8")
         console.print(f"[dim]wrote {out / 'report.json'}[/dim]")
 
 
