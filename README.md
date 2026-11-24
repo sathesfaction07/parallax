@@ -112,7 +112,7 @@ Neither is right. Silence is not dissent, and it is not agreement either.
 
 ### 2. Two ordinary join idioms fail in opposite directions
 
-The brief lists *"multiple teams working on the same entity"* as worst input and proposes to
+The project brief lists *"multiple teams working on the same entity"* as worst input and proposes to
 handle it with exception rules. It is a **pairing** problem, and it happens before a rule can see
 anything.
 

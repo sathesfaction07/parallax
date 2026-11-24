@@ -47,7 +47,7 @@ Every arrow is a place where a naive implementation would have said "these disag
 
 ## Why the rules run last
 
-The brief asks for exception rules *before flagging*. They are here, and they run **after
+The project brief asks for exception rules *before flagging*. They are here, and they run **after
 everything else**, for a reason that is structural rather than stylistic:
 
 A rule inspects a pair. By the time a pair exists, four decisions have already been made — which
@@ -144,9 +144,9 @@ assertion elsewhere could quietly become vacuous.
 - **No model, no network, no credentials.** The accuracy problem here is comparison semantics and
   arithmetic. A model would add a second thing to be wrong about.
 - **No pandas.** The two join idioms this project is about are plain Python, which is what people
-  actually write. `pd.merge` appears in exactly one file across the whole portfolio, so building
+  actually write. `pd.merge` appears in exactly one file across all the sibling projects, so building
   the finding on it would have been building it on something nobody does here.
-- **No `decision tree`,** despite the brief naming one. The branching in `classify` is four
+- **No `decision tree`,** despite the project brief naming one. The branching in `classify` is four
   guards in a fixed order, and the order is the argument. A tree would obscure it.
 - **No truncation before comparison.** `tie_risk` reports what truncating *would* cost and is
   never used to compare, because that would be committing the defect it measures.

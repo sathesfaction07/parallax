@@ -5,7 +5,7 @@
 
 ## Context
 
-The brief asks: *is this a real discrepancy or an expected state transition?* and proposes a
+The project brief asks: *is this a real discrepancy or an expected state transition?* and proposes a
 decision tree with exception rules for known-legitimate reversal patterns, applied before flagging.
 
 Building that directly means writing a comparator that flags differing values, then a filter that
@@ -55,7 +55,7 @@ recorded.
 with a named cause, 12 `UNSEPARABLE`. A tool reporting "14 discrepancies" would have been wrong in
 a way nobody could detect from the output.
 
-**Good.** The brief's "multiple teams working on the same entity" turns out to be a *pairing*
+**Good.** The project brief's "multiple teams working on the same entity" turns out to be a *pairing*
 failure, which the rules provably cannot reach — and pairing now reports its cardinality rather
 than assuming it.
 
